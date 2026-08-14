@@ -34,8 +34,8 @@ src/
     └── mod.rs
 ```
 
-* [ ] All files above exist
-* [ ] `lib.rs` declares the core modules:
+* [x] All files above exist
+* [x] `lib.rs` declares the core modules:
 
 ```rust
 pub mod types;
@@ -46,9 +46,9 @@ pub mod rules;
 // pub mod search; // uncomment when search is introduced
 ```
 
-* [ ] Folder structure follows the principle: **pure core stays clean**
-* [ ] Search/AI is isolated from the game rules
-* [ ] No UI or I/O code exists inside the core
+* [x] Folder structure follows the principle: **pure core stays clean**
+* [x] Search/AI is isolated from the game rules
+* [x] No UI or I/O code exists inside the core
 
 ---
 
