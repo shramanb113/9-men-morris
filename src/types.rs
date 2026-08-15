@@ -20,7 +20,8 @@ pub enum GameResult {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct Square(pub u32);
+pub struct Square(pub u8);
+
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Move {
