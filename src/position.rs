@@ -1,4 +1,4 @@
-use crate::{board::{BitBoard, is_bb, popcount}, types::{Color, GameResult, Phase, Square}};
+use crate::{board::{BitBoard, SQUARE_MILLS, clear, is_bb, popcount, set}, types::{Color, GameResult, Phase, Square}};
 
 #[derive(Debug, Clone , PartialEq, Hash)]
 pub struct CurrentGameState {
@@ -91,4 +91,58 @@ impl CurrentGameState {
     pub fn can_fly(&self, side: Color) -> bool {
         self.phase(side) == Phase::Flying
     }
+
+    pub fn pieces(&self, side: Color) -> BitBoard {
+        match side {
+            Color::White => self.white_pieces,
+            Color::Black => self.black_pieces,
+        }
+    }
+
+    // Mill detection 
+    /// Returns true if the given color completely owns this mill bitboard.
+    pub fn is_mill(&self, side: Color, mill: BitBoard) -> bool {
+        let pieces = self.pieces(side);
+        pieces & mill == mill
+    }
+
+    /// Returns true if the piece on `sq` is currently part of any mill for `color`.
+    pub fn is_in_mill(&self, color: Color, sq: Square) -> bool {
+        let [m1, m2]: [BitBoard; 2] = SQUARE_MILLS[sq.0 as usize];
+        self.is_mill(color, m1) || self.is_mill(color, m2)
+    }
+
+    /// Returns true if placing/moving a piece of `color` to `sq` would complete
+    /// one or more mills.
+    pub fn forms_mill(&self, color: Color, sq: Square, from: Option<Square>) -> bool {
+        self.mills_created_by(color, sq, from) > 0
+    }
+
+    /// Returns how many mills would be completed by landing on `sq` with `color`.
+    /// Useful for evaluation and debugging (normally 0, 1, or 2).
+    pub fn mills_created_by(&self, color: Color, sq: Square, from: Option<Square>) -> u8 {
+        let mut hypothetical = self.pieces(color);
+        if let Some(from) = from {
+            hypothetical = clear(hypothetical, from);
+        }
+        hypothetical = set(hypothetical, sq);
+        let [m1, m2] = SQUARE_MILLS[sq.0 as usize];
+        [m1, m2].iter().filter(|&&mill| (hypothetical & mill) == mill).count() as u8
+    }
+
+    /// Returns true if every piece the given color still has on the board
+    /// is currently part of a mill.
+    /// Needed for the capture rule exception.
+    pub fn all_pieces_in_mills(&self, color: Color) -> bool {
+        let remaining = self.pieces(color);
+        while remaining != 0 {
+            let sq = Square(remaining.trailing_zeros() as u8);
+            if !self.is_in_mill(color, sq) {
+                return false;
+            }
+        }
+        true
+    }
+
+    
 }
