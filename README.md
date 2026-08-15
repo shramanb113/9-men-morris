@@ -99,9 +99,9 @@ Define the stable vocabulary of the engine.
 
 ## Bitboard
 
-* [ ] Establish `u32` as the canonical bitboard type
-* [ ] Only the lower 24 bits are used
-* [ ] Document this invariant clearly
+* [x] Establish `u32` as the canonical bitboard type
+* [x] Only the lower 24 bits are used
+* [x] Document this invariant clearly
 
 Example:
 
@@ -140,11 +140,11 @@ The board module should contain immutable, precomputed data describing the topol
 
 ## 4.1 Canonical Square Numbering
 
-* [ ] Define exactly 24 squares
-* [ ] Number squares from `0` to `23`
-* [ ] Document the numbering with an ASCII diagram
-* [ ] Ensure numbering remains stable for the lifetime of the engine
-* [ ] Ensure square numbers map directly to bit positions
+* [x] Define exactly 24 squares
+* [x] Number squares from `0` to `23`
+* [x] Document the numbering with an ASCII diagram
+* [x] Ensure numbering remains stable for the lifetime of the engine
+* [x] Ensure square numbers map directly to bit positions
 
 The fundamental mapping is:
 
@@ -169,9 +169,9 @@ pub const BOARD_MASK: u32 = 0x00FF_FFFF;
 
 This guarantees that only bits `0..23` represent actual board squares.
 
-* [ ] `BOARD_MASK` is defined
-* [ ] All board operations respect the mask
-* [ ] Bits `24..31` are never used to represent squares
+* [x] `BOARD_MASK` is defined
+* [x] All board operations respect the mask
+* [x] Bits `24..31` are never used to represent squares
 
 ---
 
@@ -201,13 +201,13 @@ MOVES[sq]
 
 contains a `1` for every square that can be reached from `sq` during a normal movement phase.
 
-* [ ] Define `MOVES: [Bitboard; 24]`
-* [ ] Every square has a precomputed adjacency bitboard
-* [ ] No runtime graph construction is required
-* [ ] No heap allocation is required
-* [ ] Adjacency is represented entirely through bit operations
-* [ ] Verify adjacency relationships are correct
-* [ ] Verify adjacency symmetry where applicable
+* [x] Define `MOVES: [Bitboard; 24]`
+* [x] Every square has a precomputed adjacency bitboard
+* [x] No runtime graph construction is required
+* [x] No heap allocation is required
+* [x] Adjacency is represented entirely through bit operations
+* [x] Verify adjacency relationships are correct
+* [x] Verify adjacency symmetry where applicable
 
 Example move-generation primitive:
 
@@ -238,13 +238,13 @@ Example conceptual representation:
 mill = bit(a) | bit(b) | bit(c)
 ```
 
-* [ ] Define exactly 16 mills
-* [ ] Each mill contains exactly 3 squares
-* [ ] Every square referenced by a mill is within `0..23`
-* [ ] No mill contains duplicate squares
-* [ ] No standard mill is missing
-* [ ] No standard mill is duplicated
-* [ ] Mills are immutable static data
+* [x] Define exactly 16 mills
+* [x] Each mill contains exactly 3 squares
+* [x] Every square referenced by a mill is within `0..23`
+* [x] No mill contains duplicate squares
+* [x] No standard mill is missing
+* [x] No standard mill is duplicated
+* [x] Mills are immutable static data
 
 ---
 
