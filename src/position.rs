@@ -301,4 +301,103 @@ impl CurrentGameState {
             Phase::Flying => self.generate_fly_moves(color),
         }
     }
+
+    //Move making step 
+
+    // Game result
+    pub fn result(&self) -> GameResult {
+        if self.is_terminal() {
+            if self.pieces_on_board(Color::White) < 3 {
+                return GameResult::Winner(Color::Black);
+            }
+            if self.pieces_on_board(Color::Black) < 3 {
+                return GameResult::Winner(Color::White);
+            }
+        }
+        GameResult::Ongoing
+    }
+
+    // Place a piece on the board.
+    fn place_piece(&mut self, color: Color, sq: Square) {
+        debug_assert!(
+            self.is_empty(sq),
+            "attempting to place piece on non-empty square: color={:#?}, sq={:#?}",
+            color,
+            sq
+        );
+        match color {
+            Color::White => self.white_pieces = set(self.white_pieces, sq),
+            Color::Black => self.black_pieces = set(self.black_pieces, sq),
+        }
+    }
+
+    /// Remove a piece from the board.
+    fn remove_piece(&mut self, sq: Square) {
+        self.white_pieces = clear(self.white_pieces, sq);
+        self.black_pieces = clear(self.black_pieces, sq);
+    }
+
+    /// Moves a piece from one square to another.
+    /// Places the piece on the new square and removes it from the old square.
+    fn move_piece(&mut self, color: Color, from: Square, to: Square) {
+        debug_assert!(self.owner(from) == Some(color), "move_piece source {:?} not owned by {:?}", from, color);
+        self.remove_piece(from);
+        self.place_piece(color, to);
+    }
+
+    /// Applies a capture to the game state.
+    fn apply_capture(&mut self, capture: Option<Square>) {
+        match capture {
+            Some(sq) => {              // capture a piece from the board
+                self.remove_piece(sq);
+                self.plies_since_capture = 0;
+            }
+            None => {                  // no capture, increment the plies since capture
+                self.plies_since_capture += 1;
+            }
+        }
+    }
+
+    /// Applies a place move to the game state.
+    /// Places a piece on the new square and removes it from the hand.
+    fn apply_place(&mut self, color: Color, to: Square, capture: Option<Square>) {
+        self.place_piece(color, to);
+        match color {
+            Color::White => self.white_unplaced -= 1,
+            Color::Black => self.black_unplaced -= 1,
+        }
+        self.apply_capture(capture);
+    }
+
+    /// Applies a slide move to the game state.
+    /// Moves a piece from the old square to the new square and applies a capture.
+    fn apply_slide(&mut self, color: Color, from: Square, to: Square, capture: Option<Square>) {
+        self.move_piece(color, from, to);
+        self.apply_capture(capture);
+    }
+
+    /// Applies a fly move to the game state.
+    /// Moves a piece from the old square to the new square and applies a capture.
+    fn apply_fly(&mut self, color: Color, from: Square, to: Square, capture: Option<Square>) {
+        self.move_piece(color, from, to);
+        self.apply_capture(capture);
+    }
+
+    /// Switches the turn to the opponent.
+    fn switch_turn(&mut self) {
+        self.turn = self.turn.opponent();
+    }
+
+    pub fn make_move(&self, mv: Move) -> CurrentGameState {
+        let mut next = self.clone();
+        match mv {
+            Move::Place { to, capture } => next.apply_place(next.turn, to, capture),
+            Move::Slide { from, to, capture } => next.apply_slide(next.turn, from, to, capture),
+            Move::Fly { from, to, capture } => next.apply_fly(next.turn, from, to, capture),
+        }
+        next.switch_turn();
+        next
+    }
+    
 }
+
