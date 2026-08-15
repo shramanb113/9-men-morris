@@ -123,6 +123,7 @@ pub const SQUARE_MILLS: [[BitBoard; 2]; 24] = [
 // changes every square numebr to bit
 #[inline]
 pub fn bit(sq: Square) -> BitBoard{
+    debug_assert!(sq.0 < 24, "square out of range 0..23: {}", sq.0);
     1 << sq.0
 }
 

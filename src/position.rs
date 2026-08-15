@@ -1,19 +1,26 @@
-use crate::{board::{BOARD_MASK, BitBoard, MOVES, SQUARE_MILLS, clear, is_bb, popcount, set}, types::{Color, GameResult, Phase, Square, Move}};
+use crate::board::{BOARD_MASK, BitBoard, clear, is_bb, popcount, set};
+use crate::types::{Color, GameResult, Square};
 
-#[derive(Debug, Clone , PartialEq, Hash)]
+/// Bitboard-backed game state: side bitboards, hand counts, turn, and the
+/// draw clock. Fields are private — every mutation goes through a method
+/// that ends by asserting `invariants_hold`, so the four position
+/// invariants (no overlap, only bits 0..23, counts agreeing with the
+/// bitboards, no state that is neither empty/White/Black) can never be
+/// violated silently.
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct CurrentGameState {
-    pub white_pieces: BitBoard,
-    pub black_pieces: BitBoard,
-    pub white_unplaced: u8,
-    pub black_unplaced: u8,
-    pub turn: Color,
-    pub plies_since_capture: u16,
-    pub game_result: GameResult,
+    white_pieces: BitBoard,
+    black_pieces: BitBoard,
+    white_unplaced: u8,
+    black_unplaced: u8,
+    turn: Color,
+    plies_since_capture: u16,
+    game_result: GameResult,
+    draw_ply_limit: u16,
 }
 
-
 impl CurrentGameState {
-    pub fn new() -> Self {  // initializes a new game state with all pieces in their starting positions
+    pub fn new() -> Self {
         Self {
             white_pieces: 0,
             black_pieces: 0,
@@ -22,23 +29,57 @@ impl CurrentGameState {
             turn: Color::White,
             plies_since_capture: 0,
             game_result: GameResult::Ongoing,
+            draw_ply_limit: 100,
         }
     }
 
-    pub fn phase(&self, side: Color) -> Phase {
-        let (unplaced, pieces) = match side {
-            Color::Black => (self.black_unplaced, self.black_pieces),
-            Color::White => (self.white_unplaced, self.white_pieces)
-        };
-
-        if unplaced > 0 {
-            return Phase::Placing;
-        } else if popcount(pieces) <= 3 {
-            return Phase::Flying
-        } else {
-            return Phase::Sliding;
-        }
+    fn no_overlap(&self) -> bool {
+        (self.white_pieces & self.black_pieces) == 0
     }
+
+    fn in_bounds(&self) -> bool {
+        (self.white_pieces | self.black_pieces) & !BOARD_MASK == 0
+    }
+
+    fn piece_counts_ok(&self) -> bool {
+        self.white_unplaced as u32 + popcount(self.white_pieces) <= 9
+            && self.black_unplaced as u32 + popcount(self.black_pieces) <= 9
+    }
+
+    /// True if this state satisfies every position invariant:
+    /// White/Black never overlap, only bits 0..23 are ever set, and each
+    /// side's hand + on-board pieces never exceed the starting count of 9.
+    /// Holds for any state a caller can observe from outside this crate —
+    /// i.e. anything returned by `make_move` or `new`.
+    pub fn invariants_hold(&self) -> bool {
+        self.no_overlap() && self.in_bounds() && self.piece_counts_ok()
+    }
+
+    /// Checked after every primitive bitboard mutation. Only the bitboard
+    /// shape must hold at this granularity — the hand/board count
+    /// invariant is a property of a *completed* move (see
+    /// `debug_assert_fully_valid`, called from `moves.rs`), since a
+    /// placement briefly has the piece counted in both hand and board
+    /// between its two constituent primitive calls.
+    fn debug_assert_valid(&self) {
+        debug_assert!(
+            self.no_overlap() && self.in_bounds(),
+            "CurrentGameState bitboard invariant violated: {:#?}",
+            self
+        );
+    }
+
+    /// Checked once a full move has been applied (placement, slide, fly,
+    /// including any capture). Used by `moves.rs::make_move`.
+    pub(crate) fn debug_assert_fully_valid(&self) {
+        debug_assert!(
+            self.invariants_hold(),
+            "CurrentGameState invariant violated: {:#?}",
+            self
+        );
+    }
+
+    // --- queries ---
 
     pub fn is_white(&self, sq: Square) -> bool {
         is_bb(self.white_pieces, sq)
@@ -62,11 +103,15 @@ impl CurrentGameState {
         }
     }
 
-    pub fn pieces_on_board(&self, side: Color) -> u8 {
+    pub fn pieces(&self, side: Color) -> BitBoard {
         match side {
-            Color::White => popcount(self.white_pieces) as u8,
-            Color::Black => popcount(self.black_pieces) as u8,
+            Color::White => self.white_pieces,
+            Color::Black => self.black_pieces,
         }
+    }
+
+    pub fn pieces_on_board(&self, side: Color) -> u8 {
+        popcount(self.pieces(side)) as u8
     }
 
     pub fn pieces_in_hand(&self, side: Color) -> u8 {
@@ -84,241 +129,34 @@ impl CurrentGameState {
         self.turn
     }
 
-    pub fn current_phase(&self) -> Phase {
-        self.phase(self.turn)
+    pub fn plies_since_capture(&self) -> u16 {
+        self.plies_since_capture
     }
 
-    pub fn can_fly(&self, side: Color) -> bool {
-        self.phase(side) == Phase::Flying
+    pub fn draw_ply_limit(&self) -> u16 {
+        self.draw_ply_limit
     }
 
-    pub fn pieces(&self, side: Color) -> BitBoard {
-        match side {
-            Color::White => self.white_pieces,
-            Color::Black => self.black_pieces,
-        }
+    pub fn game_result(&self) -> GameResult {
+        self.game_result
     }
 
-    // Mill detection 
-    /// Returns true if the given color completely owns this mill bitboard.
-    pub fn is_mill(&self, side: Color, mill: BitBoard) -> bool {
-        let pieces = self.pieces(side);
-        pieces & mill == mill
-    }
-
-    /// Returns true if the piece on `sq` is currently part of any mill for `color`.
-    pub fn is_in_mill(&self, color: Color, sq: Square) -> bool {
-        let [m1, m2]: [BitBoard; 2] = SQUARE_MILLS[sq.0 as usize];
-        self.is_mill(color, m1) || self.is_mill(color, m2)
-    }
-
-    /// Returns true if placing/moving a piece of `color` to `sq` would complete
-    /// one or more mills.
-    pub fn forms_mill(&self, color: Color, sq: Square, from: Option<Square>) -> bool {
-        self.mills_created_by(color, sq, from) > 0
-    }
-
-    /// Returns how many mills would be completed by landing on `sq` with `color`.
-    /// Useful for evaluation and debugging (normally 0, 1, or 2).
-    pub fn mills_created_by(&self, color: Color, sq: Square, from: Option<Square>) -> u8 {
-        let mut hypothetical = self.pieces(color);
-        if let Some(from) = from {
-            hypothetical = clear(hypothetical, from);
-        }
-        hypothetical = set(hypothetical, sq);
-        let [m1, m2]: [BitBoard; 2] = SQUARE_MILLS[sq.0 as usize];
-        let mut mills = 0u8;
-        if (hypothetical & m1) == m1 { mills += 1; }
-        if (hypothetical & m2) == m2 { mills += 1; }
-        mills
-    }
-
-
-    /// Returns true if every piece the given color still has on the board
-    /// is currently part of a mill.
-    /// Needed for the capture rule exception.
-    pub fn all_pieces_in_mills(&self, color: Color) -> bool {
-        let remaining = self.pieces(color);
-        while remaining != 0 {
-            let sq = Square(remaining.trailing_zeros() as u8);
-            if !self.is_in_mill(color, sq) {
-                return false;
-            }
-        }
-        true
-    }
-
-    // Move generation
-
-    /// True if either side already has fewer than 3 pieces on the board.
-    /// A position in this state is terminal — generate_moves (and therefore
-    /// with_captures) should never be called on it.
-    pub fn is_terminal(&self) -> bool {
-        let lost = |side: Color| self.pieces_in_hand(side) == 0 && self.pieces_on_board(side) < 3;
-        lost(Color::White) || lost(Color::Black)
+    pub fn occupied(&self) -> BitBoard {
+        self.white_pieces | self.black_pieces
     }
 
     /// Returns a bitboard of all empty squares on the board.
     pub fn empty_squares(&self) -> BitBoard {
-        BOARD_MASK & !(self.white_pieces | self.black_pieces)
+        BOARD_MASK & !self.occupied()
     }
 
-    /// Returns all pieces of the given color that can currently move
-    /// (used mainly for slide/fly).
-    fn movable_pieces(&self, color: Color) -> BitBoard {
-        let empties: BitBoard = self.empty_squares();
-        let mut own = self.pieces(color);
-        let mut movable = 0;
-        while own != 0 {
-            let sq = Square(own.trailing_zeros() as u8);
-            if MOVES[sq.0 as usize] & empties != 0 {
-                movable = set(movable, sq);
-            }
-            own = clear(own, sq);
-        }
-        movable
-    }
+    // --- primitive mutators ---
+    // Crate-private: `moves.rs` composes these into full Place/Slide/Fly
+    // application. Keeping them out of the public API means a
+    // `CurrentGameState` can only ever be mutated along paths that end in
+    // `debug_assert_valid`.
 
-    fn with_capture(mv: Move, target: Square) -> Move {
-        match mv {
-            Move::Place { to, .. } => Move::Place { to, capture: Some(target) },
-            Move::Slide { from, to, .. } => Move::Slide { from, to, capture: Some(target) },
-            Move::Fly { from, to, .. } => Move::Fly { from, to, capture: Some(target) },
-        }
-    }
-
-    fn with_captures(&self, base_moves: Vec<Move>, color: Color) -> Vec<Move> {
-        // computed once — identical for every move in this batch, see prior turn
-        let captures = self.generate_captures(color);
-        let mut result = Vec::with_capacity(base_moves.len());
-
-        for mv in base_moves {
-            let formed_mill = match mv {
-                Move::Place { to, .. } => self.forms_mill(color, to, None),
-                Move::Slide { from, to, .. } | Move::Fly { from, to, .. } => {
-                    self.forms_mill(color, to, Some(from))
-                }
-            };
-
-            if formed_mill {
-                debug_assert!(
-                    !captures.is_empty(),
-                    "mill formed with no capture targets — opponent has {} pieces; \
-                     caller must check is_terminal() before generating moves",
-                    self.pieces_on_board(color.opponent())
-                );
-                result.extend(captures.iter().map(|&target| Self::with_capture(mv, target)));
-            } else {
-                result.push(mv);
-            }
-        }
-        result
-    }
-
-    /// Returns all squares that the given color is currently allowed to capture.
-    /// Respects the rule: cannot capture a piece in a mill unless all opponent
-    /// pieces are in mills.
-    #[warn(unused_mut)]
-    fn generate_captures(&self, color: Color) -> Vec<Square> {
-        let opponent = color.opponent();
-        let mut opp_pieces = self.pieces(opponent);
-
-        let mut non_mill = Vec::new();
-        let mut remaining = opp_pieces;
-        while remaining != 0 {
-            let sq = Square(remaining.trailing_zeros() as u8);
-            if !self.is_in_mill(opponent, sq) {
-                non_mill.push(sq);
-            }
-            remaining = clear(remaining, sq);
-        }
-
-        non_mill
-    }
-
-    /// Generates all legal placing moves (Phase 1).
-    fn generate_place_moves(&self, color: Color) -> Vec<Move> {
-        let mut base = Vec::new();
-        let mut empties = self.empty_squares();
-        while empties != 0 {
-            let to = Square(empties.trailing_zeros() as u8);
-            base.push(Move::Place { to, capture: None });
-            empties = clear(empties, to);
-        }
-        self.with_captures(base, color)
-    }
-
-    /// Generates all legal sliding moves (Phase 2).
-    fn generate_slide_moves(&self, color: Color) -> Vec<Move> {
-        let mut base = Vec::new();
-        let empties = self.empty_squares();
-        let mut movable = self.movable_pieces(color);
-
-        while movable != 0 {
-            let from = Square(movable.trailing_zeros() as u8);
-            let mut dests = MOVES[from.0 as usize] & empties;
-            while dests != 0 {
-                let to = Square(dests.trailing_zeros() as u8);
-                base.push(Move::Slide { from, to, capture: None });
-                dests = clear(dests, to);
-            }
-            movable = clear(movable, from);
-        }
-        self.with_captures(base, color)
-    }
-
-    /// Generates all legal flying moves (Phase 3).
-    fn generate_fly_moves(&self, color: Color) -> Vec<Move> {
-        let mut base = Vec::new();
-        let empties = self.empty_squares();
-        let mut own = self.pieces(color); // no movable_pieces filter — everything can fly
-        while own != 0 {
-            let from = Square(own.trailing_zeros() as u8);
-            let mut dests = MOVES[from.0 as usize] & empties;
-            while dests != 0 {
-                let to = Square(dests.trailing_zeros() as u8);
-                base.push(Move::Fly { from, to, capture: None });
-                dests = clear(dests, to);
-            }
-            own = clear(own, from);
-        }
-        self.with_captures(base, color)
-    }
-
-    /// Generates all legal moves for the side to move in the current position.
-    pub fn generate_moves(&self) -> Vec<Move> {
-        debug_assert!(
-            !self.is_terminal(),
-            "generate_moves called on terminal position: white={}, black={}",
-            self.pieces_on_board(Color::White),
-            self.pieces_on_board(Color::Black)
-        );
-
-        let color = self.side_to_move();
-        match self.current_phase() {
-            Phase::Placing => self.generate_place_moves(color),
-            Phase::Sliding => self.generate_slide_moves(color),
-            Phase::Flying => self.generate_fly_moves(color),
-        }
-    }
-
-    //Move making step 
-
-    // Game result
-    pub fn result(&self) -> GameResult {
-        if self.is_terminal() {
-            if self.pieces_on_board(Color::White) < 3 {
-                return GameResult::Winner(Color::Black);
-            }
-            if self.pieces_on_board(Color::Black) < 3 {
-                return GameResult::Winner(Color::White);
-            }
-        }
-        GameResult::Ongoing
-    }
-
-    // Place a piece on the board.
-    fn place_piece(&mut self, color: Color, sq: Square) {
+    pub(crate) fn place_piece(&mut self, color: Color, sq: Square) {
         debug_assert!(
             self.is_empty(sq),
             "attempting to place piece on non-empty square: color={:#?}, sq={:#?}",
@@ -329,75 +167,107 @@ impl CurrentGameState {
             Color::White => self.white_pieces = set(self.white_pieces, sq),
             Color::Black => self.black_pieces = set(self.black_pieces, sq),
         }
+        self.debug_assert_valid();
     }
 
-    /// Remove a piece from the board.
-    fn remove_piece(&mut self, sq: Square) {
+    pub(crate) fn remove_piece(&mut self, sq: Square) {
         self.white_pieces = clear(self.white_pieces, sq);
         self.black_pieces = clear(self.black_pieces, sq);
+        self.debug_assert_valid();
     }
 
-    /// Moves a piece from one square to another.
-    /// Places the piece on the new square and removes it from the old square.
-    fn move_piece(&mut self, color: Color, from: Square, to: Square) {
-        debug_assert!(self.owner(from) == Some(color), "move_piece source {:?} not owned by {:?}", from, color);
+    pub(crate) fn move_piece(&mut self, color: Color, from: Square, to: Square) {
+        debug_assert!(
+            self.owner(from) == Some(color),
+            "move_piece source {:?} not owned by {:?}",
+            from,
+            color
+        );
         self.remove_piece(from);
         self.place_piece(color, to);
     }
 
-    /// Applies a capture to the game state.
-    fn apply_capture(&mut self, capture: Option<Square>) {
-        match capture {
-            Some(sq) => {              // capture a piece from the board
-                self.remove_piece(sq);
-                self.plies_since_capture = 0;
-            }
-            None => {                  // no capture, increment the plies since capture
-                self.plies_since_capture += 1;
-            }
-        }
-    }
-
-    /// Applies a place move to the game state.
-    /// Places a piece on the new square and removes it from the hand.
-    fn apply_place(&mut self, color: Color, to: Square, capture: Option<Square>) {
-        self.place_piece(color, to);
+    pub(crate) fn dec_unplaced(&mut self, color: Color) {
         match color {
-            Color::White => self.white_unplaced -= 1,
-            Color::Black => self.black_unplaced -= 1,
+            Color::White => {
+                debug_assert!(self.white_unplaced > 0, "no white pieces left to place");
+                self.white_unplaced -= 1;
+            }
+            Color::Black => {
+                debug_assert!(self.black_unplaced > 0, "no black pieces left to place");
+                self.black_unplaced -= 1;
+            }
         }
-        self.apply_capture(capture);
+        self.debug_assert_valid();
     }
 
-    /// Applies a slide move to the game state.
-    /// Moves a piece from the old square to the new square and applies a capture.
-    fn apply_slide(&mut self, color: Color, from: Square, to: Square, capture: Option<Square>) {
-        self.move_piece(color, from, to);
-        self.apply_capture(capture);
+    pub(crate) fn set_turn(&mut self, color: Color) {
+        self.turn = color;
     }
 
-    /// Applies a fly move to the game state.
-    /// Moves a piece from the old square to the new square and applies a capture.
-    fn apply_fly(&mut self, color: Color, from: Square, to: Square, capture: Option<Square>) {
-        self.move_piece(color, from, to);
-        self.apply_capture(capture);
+    pub(crate) fn reset_capture_clock(&mut self) {
+        self.plies_since_capture = 0;
     }
 
-    /// Switches the turn to the opponent.
-    fn switch_turn(&mut self) {
-        self.turn = self.turn.opponent();
+    pub(crate) fn tick_capture_clock(&mut self) {
+        self.plies_since_capture += 1;
     }
-
-    pub fn make_move(&self, mv: Move) -> CurrentGameState {
-        let mut next = self.clone();
-        match mv {
-            Move::Place { to, capture } => next.apply_place(next.turn, to, capture),
-            Move::Slide { from, to, capture } => next.apply_slide(next.turn, from, to, capture),
-            Move::Fly { from, to, capture } => next.apply_fly(next.turn, from, to, capture),
-        }
-        next.switch_turn();
-        next
-    }
-    
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_state_is_valid_and_empty() {
+        let state = CurrentGameState::new();
+        assert!(state.invariants_hold());
+        assert_eq!(state.occupied(), 0);
+        assert_eq!(state.pieces_in_hand(Color::White), 9);
+        assert_eq!(state.pieces_in_hand(Color::Black), 9);
+    }
+
+    #[test]
+    fn placing_keeps_state_valid() {
+        let state = CurrentGameState::new();
+        let next = state.make_move(crate::types::Move::Place { to: Square(0), capture: None });
+        assert!(next.invariants_hold());
+        assert!(next.is_white(Square(0)));
+        assert!(!next.is_black(Square(0)));
+        assert!(!next.is_empty(Square(0)));
+        assert_eq!(next.pieces_in_hand(Color::White), 8);
+    }
+
+    #[test]
+    fn detects_white_black_overlap() {
+        let mut state = CurrentGameState::new();
+        state.white_pieces = set(state.white_pieces, Square(5));
+        state.black_pieces = set(state.black_pieces, Square(5));
+        assert!(!state.invariants_hold());
+    }
+
+    #[test]
+    fn detects_bits_outside_board_mask() {
+        let mut state = CurrentGameState::new();
+        state.white_pieces |= 1 << 24;
+        assert!(!state.invariants_hold());
+    }
+
+    #[test]
+    fn detects_piece_count_exceeding_starting_total() {
+        let mut state = CurrentGameState::new();
+        // 9 in hand plus a 10th already on the board is impossible.
+        state.white_pieces = set(state.white_pieces, Square(0));
+        assert!(!state.invariants_hold());
+    }
+
+    #[test]
+    fn square_is_exactly_one_of_empty_white_black() {
+        let mut state = CurrentGameState::new();
+        state.place_piece(Color::Black, Square(10));
+        assert!(state.is_black(Square(10)));
+        assert!(!state.is_white(Square(10)));
+        assert!(!state.is_empty(Square(10)));
+        assert!(state.is_empty(Square(11)));
+    }
+}
