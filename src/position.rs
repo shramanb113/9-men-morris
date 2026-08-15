@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::board::{BOARD_MASK, BitBoard, clear, is_bb, popcount, set};
 use crate::types::{Color, GameResult, Square};
 
@@ -19,6 +21,38 @@ pub struct CurrentGameState {
     draw_ply_limit: u16,
 }
 
+/// Why `CurrentGameState::from_bitboards` rejected its input. Unlike the
+/// `debug_assert!`s used internally — which guard against bugs in this
+/// crate's own code and compile out of release builds — these checks run
+/// unconditionally, because `from_bitboards` is the boundary where data
+/// from outside the engine (a UI, a save file, a future FFI/Kotlin caller)
+/// first becomes a trusted `CurrentGameState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PositionError {
+    /// The same square is set in both the white and black bitboards.
+    Overlap,
+    /// A bit outside squares 0..23 is set in white and/or black.
+    OutOfBounds,
+    /// `unplaced + pieces_on_board` exceeds the starting count of 9 for this side.
+    TooManyPieces(Color),
+}
+
+impl fmt::Display for PositionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PositionError::Overlap => write!(f, "white and black occupy the same square"),
+            PositionError::OutOfBounds => {
+                write!(f, "a piece bitboard sets a bit outside squares 0..23")
+            }
+            PositionError::TooManyPieces(color) => {
+                write!(f, "{color:?} has more than 9 pieces across hand and board")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PositionError {}
+
 impl CurrentGameState {
     pub fn new() -> Self {
         Self {
@@ -33,6 +67,49 @@ impl CurrentGameState {
         }
     }
 
+    /// Builds a `CurrentGameState` from raw parts, rejecting anything that
+    /// violates the position invariants instead of trusting the caller.
+    /// This is the one place external, untrusted input is allowed to
+    /// become a `CurrentGameState` — every other constructor in this crate
+    /// (`new`, `make_move`) only ever produces states this crate already
+    /// trusts. Checked unconditionally so a release build still rejects a
+    /// malformed position rather than silently running with it.
+    pub fn from_bitboards(
+        white: BitBoard,
+        black: BitBoard,
+        white_unplaced: u8,
+        black_unplaced: u8,
+        turn: Color,
+        plies_since_capture: u16,
+        draw_ply_limit: u16,
+    ) -> Result<Self, PositionError> {
+        let state = Self {
+            white_pieces: white,
+            black_pieces: black,
+            white_unplaced,
+            black_unplaced,
+            turn,
+            plies_since_capture,
+            game_result: GameResult::Ongoing,
+            draw_ply_limit,
+        };
+
+        if !state.no_overlap() {
+            return Err(PositionError::Overlap);
+        }
+        if !state.in_bounds() {
+            return Err(PositionError::OutOfBounds);
+        }
+        if !Self::count_ok(white_unplaced, white) {
+            return Err(PositionError::TooManyPieces(Color::White));
+        }
+        if !Self::count_ok(black_unplaced, black) {
+            return Err(PositionError::TooManyPieces(Color::Black));
+        }
+
+        Ok(state)
+    }
+
     fn no_overlap(&self) -> bool {
         (self.white_pieces & self.black_pieces) == 0
     }
@@ -41,9 +118,13 @@ impl CurrentGameState {
         (self.white_pieces | self.black_pieces) & !BOARD_MASK == 0
     }
 
+    fn count_ok(unplaced: u8, pieces: BitBoard) -> bool {
+        unplaced as u32 + popcount(pieces) <= 9
+    }
+
     fn piece_counts_ok(&self) -> bool {
-        self.white_unplaced as u32 + popcount(self.white_pieces) <= 9
-            && self.black_unplaced as u32 + popcount(self.black_pieces) <= 9
+        Self::count_ok(self.white_unplaced, self.white_pieces)
+            && Self::count_ok(self.black_unplaced, self.black_pieces)
     }
 
     /// True if this state satisfies every position invariant:
@@ -269,5 +350,58 @@ mod tests {
         assert!(!state.is_white(Square(10)));
         assert!(!state.is_empty(Square(10)));
         assert!(state.is_empty(Square(11)));
+    }
+
+    #[test]
+    fn from_bitboards_accepts_a_valid_position() {
+        let state = CurrentGameState::from_bitboards(
+            set(0, Square(0)),
+            set(0, Square(1)),
+            8,
+            8,
+            Color::White,
+            0,
+            100,
+        )
+        .expect("valid position should be accepted");
+        assert!(state.is_white(Square(0)));
+        assert!(state.is_black(Square(1)));
+        assert_eq!(state.pieces_in_hand(Color::White), 8);
+    }
+
+    #[test]
+    fn from_bitboards_rejects_overlap() {
+        let overlapping = set(0, Square(3));
+        let err = CurrentGameState::from_bitboards(overlapping, overlapping, 8, 8, Color::White, 0, 100)
+            .unwrap_err();
+        assert_eq!(err, PositionError::Overlap);
+    }
+
+    #[test]
+    fn from_bitboards_rejects_bits_outside_board() {
+        let err = CurrentGameState::from_bitboards(1 << 24, 0, 9, 9, Color::White, 0, 100)
+            .unwrap_err();
+        assert_eq!(err, PositionError::OutOfBounds);
+    }
+
+    #[test]
+    fn from_bitboards_rejects_too_many_pieces() {
+        // 9 already on the board plus a 10th claimed to still be in hand.
+        let nine_white = (0..9).fold(0u32, |bb, sq| set(bb, Square(sq)));
+        let err = CurrentGameState::from_bitboards(nine_white, 0, 1, 9, Color::White, 0, 100)
+            .unwrap_err();
+        assert_eq!(err, PositionError::TooManyPieces(Color::White));
+    }
+
+    #[test]
+    fn from_bitboards_error_messages_are_readable() {
+        assert_eq!(
+            PositionError::Overlap.to_string(),
+            "white and black occupy the same square"
+        );
+        assert_eq!(
+            PositionError::TooManyPieces(Color::Black).to_string(),
+            "Black has more than 9 pieces across hand and board"
+        );
     }
 }
