@@ -154,18 +154,19 @@ impl CurrentGameState {
     /// A position in this state is terminal — generate_moves (and therefore
     /// with_captures) should never be called on it.
     pub fn is_terminal(&self) -> bool {
-        self.pieces_on_board(Color::White) < 3 || self.pieces_on_board(Color::Black) < 3
+        let lost = |side: Color| self.pieces_in_hand(side) == 0 && self.pieces_on_board(side) < 3;
+        lost(Color::White) || lost(Color::Black)
     }
 
     /// Returns a bitboard of all empty squares on the board.
-    pub fn empty_sqaures(&self) -> BitBoard {
+    pub fn empty_squares(&self) -> BitBoard {
         BOARD_MASK & !(self.white_pieces | self.black_pieces)
     }
 
     /// Returns all pieces of the given color that can currently move
     /// (used mainly for slide/fly).
     fn movable_pieces(&self, color: Color) -> BitBoard {
-        let empties: BitBoard = self.empty_sqaures();
+        let empties: BitBoard = self.empty_squares();
         let mut own = self.pieces(color);
         let mut movable = 0;
         while own != 0 {
@@ -238,7 +239,7 @@ impl CurrentGameState {
     /// Generates all legal placing moves (Phase 1).
     fn generate_place_moves(&self, color: Color) -> Vec<Move> {
         let mut base = Vec::new();
-        let mut empties = self.empty_sqaures();
+        let mut empties = self.empty_squares();
         while empties != 0 {
             let to = Square(empties.trailing_zeros() as u8);
             base.push(Move::Place { to, capture: None });
@@ -250,7 +251,7 @@ impl CurrentGameState {
     /// Generates all legal sliding moves (Phase 2).
     fn generate_slide_moves(&self, color: Color) -> Vec<Move> {
         let mut base = Vec::new();
-        let empties = self.empty_sqaures();
+        let empties = self.empty_squares();
         let mut movable = self.movable_pieces(color);
 
         while movable != 0 {
@@ -269,7 +270,7 @@ impl CurrentGameState {
     /// Generates all legal flying moves (Phase 3).
     fn generate_fly_moves(&self, color: Color) -> Vec<Move> {
         let mut base = Vec::new();
-        let empties = self.empty_sqaures();
+        let empties = self.empty_squares();
         let mut own = self.pieces(color); // no movable_pieces filter — everything can fly
         while own != 0 {
             let from = Square(own.trailing_zeros() as u8);
@@ -300,5 +301,4 @@ impl CurrentGameState {
             Phase::Flying => self.generate_fly_moves(color),
         }
     }
-    
 }
