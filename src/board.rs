@@ -91,6 +91,33 @@ pub static MILLS: [BitBoard; 16] = [
     (1 << 2) | (1 << 14) | (1 << 23),     // G1-G4-G7
 ];
 
+pub const SQUARE_MILLS: [[BitBoard; 2]; 24] = [
+    [MILLS[0], MILLS[8]],   // 0  A1
+    [MILLS[0], MILLS[11]],  // 1  D1
+    [MILLS[0], MILLS[15]],  // 2  G1
+    [MILLS[1], MILLS[9]],   // 3  B2
+    [MILLS[1], MILLS[11]],  // 4  D2
+    [MILLS[1], MILLS[14]],  // 5  F2
+    [MILLS[2], MILLS[10]],  // 6  C3
+    [MILLS[2], MILLS[11]],  // 7  D3
+    [MILLS[2], MILLS[13]],  // 8  E3
+    [MILLS[3], MILLS[8]],   // 9  A4
+    [MILLS[3], MILLS[9]],   // 10 B4
+    [MILLS[3], MILLS[10]],  // 11 C4
+    [MILLS[4], MILLS[13]],  // 12 E4
+    [MILLS[4], MILLS[14]],  // 13 F4
+    [MILLS[4], MILLS[15]],  // 14 G4
+    [MILLS[5], MILLS[10]],  // 15 C5
+    [MILLS[5], MILLS[12]],  // 16 D5
+    [MILLS[5], MILLS[13]],  // 17 E5
+    [MILLS[6], MILLS[9]],   // 18 B6
+    [MILLS[6], MILLS[12]],  // 19 D6
+    [MILLS[6], MILLS[14]],  // 20 F6
+    [MILLS[7], MILLS[8]],   // 21 A7
+    [MILLS[7], MILLS[12]],  // 22 D7
+    [MILLS[7], MILLS[15]],  // 23 G7
+];
+
 // instead of writing bitwise opearation everywhere we write helper function or it 
 
 // changes every square numebr to bit
