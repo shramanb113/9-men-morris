@@ -5,6 +5,15 @@ pub enum Color {
     Black,
 }
 
+impl Color {
+    pub fn opponent(self) -> Color {
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Phase {
     Placing,
