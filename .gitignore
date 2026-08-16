@@ -1,2 +1,4 @@
 target/
 engine/wasm/pkg
+node_modules/
+ui/web/dist

@@ -52,6 +52,18 @@ fn captures_match(mv: Move, requested: &[u8]) -> bool {
     actual.len() == requested.len() && requested.iter().all(|&sq| actual.contains(Square(sq)))
 }
 
+/// Shared by `bot_move` and `hint` so a hint is always the same search tier
+/// as the bot the player is actually up against, not a separately-tuned
+/// "helper" difficulty.
+fn depth_for(difficulty: &str) -> Result<u8, String> {
+    match difficulty {
+        "easy" => Ok(search::EASY_DEPTH),
+        "medium" => Ok(search::MEDIUM_DEPTH),
+        "hard" => Ok(search::HARD_DEPTH),
+        other => Err(format!("unknown difficulty {other:?}, expected easy/medium/hard")),
+    }
+}
+
 #[wasm_bindgen]
 #[derive(Clone, Copy)]
 pub struct LegalMove {
@@ -194,6 +206,14 @@ impl GameSession {
         self.try_bot_move(difficulty, seed).map_err(|e| JsValue::from_str(&e))
     }
 
+    /// Suggests the strongest move for the side to move, searched at the
+    /// same depth tier as `difficulty`, without applying it — the session
+    /// is untouched, so the player can take it or ignore it. Same
+    /// synchronous blocking-time caveat as `bot_move` applies at "hard".
+    pub fn hint(&self, difficulty: &str) -> Result<MoveResult, JsValue> {
+        self.try_hint(difficulty).map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn is_game_over(&self) -> bool {
         self.state.is_game_over()
     }
@@ -236,21 +256,25 @@ impl GameSession {
     }
 
     fn try_bot_move(&mut self, difficulty: &str, seed: u64) -> Result<MoveResult, String> {
-        let result = match difficulty {
-            "easy" => search::search_with_randomization(
-                &self.state,
-                search::EASY_DEPTH,
-                search::EASY_RANDOMIZATION_MARGIN,
-                seed,
-            ),
-            "medium" => search::search(&self.state, search::MEDIUM_DEPTH),
-            "hard" => search::search(&self.state, search::HARD_DEPTH),
-            other => {
-                return Err(format!("unknown difficulty {other:?}, expected easy/medium/hard"));
-            }
+        let depth = depth_for(difficulty)?;
+        let result = if difficulty == "easy" {
+            search::search_with_randomization(&self.state, depth, search::EASY_RANDOMIZATION_MARGIN, seed)
+        } else {
+            search::search(&self.state, depth)
         };
 
         self.state = self.state.make_move(result.best_move);
+        let (from, to) = move_from_to(result.best_move);
+        let captures = move_captures(result.best_move).iter().map(|sq| sq.0).collect();
+        Ok(MoveResult { from, to, captures, score: result.score })
+    }
+
+    /// Read-only counterpart to `try_bot_move` — always the plain (never
+    /// randomized) best move, since a hint should show the player the
+    /// strongest option rather than mimic easy mode's deliberate weakness.
+    fn try_hint(&self, difficulty: &str) -> Result<MoveResult, String> {
+        let depth = depth_for(difficulty)?;
+        let result = search::search(&self.state, depth);
         let (from, to) = move_from_to(result.best_move);
         let captures = move_captures(result.best_move).iter().map(|sq| sq.0).collect();
         Ok(MoveResult { from, to, captures, score: result.score })
@@ -329,5 +353,20 @@ mod tests {
     fn bot_move_rejects_an_unknown_difficulty() {
         let mut session = GameSession::new_game();
         assert!(session.try_bot_move("nightmare", 1).is_err());
+    }
+
+    #[test]
+    fn hint_suggests_a_move_without_mutating_the_session() {
+        let session = GameSession::new_game();
+        let before = session.board();
+        let result = session.try_hint("medium").expect("hint should succeed");
+        assert_eq!(session.board(), before, "hint must not apply the move");
+        assert_eq!(result.from(), None); // opening move is always a placement
+    }
+
+    #[test]
+    fn hint_rejects_an_unknown_difficulty() {
+        let session = GameSession::new_game();
+        assert!(session.try_hint("nightmare").is_err());
     }
 }
