@@ -10,14 +10,15 @@ in the browser.
 Rules engine and search (negamax + alpha-beta, quiescence search,
 iterative deepening, Zobrist-backed transposition table) are complete and
 tested. `wasm/` adapter crate exposes a `GameSession` API and builds a real
-`.wasm` binary; the web UI itself hasn't been started — see Roadmap.
+`.wasm` binary; the web UI (`ui/web/`) is built against it and live at
+https://playmorris.vercel.app.
 
 This directory (`engine/`) is a self-contained Cargo workspace: `core/` is
 the engine crate (`ninemensmorris`) described below, `wasm/` is a separate
 member crate that depends on it. `cargo test --workspace` (run from
-`engine/`) tests both. The repo root also has a sibling `ui/` directory,
-reserved for whatever UI gets built against the packaged `wasm/` output —
-nothing in `engine/` depends on it, ever.
+`engine/`) tests both. The repo root also has a sibling `ui/web/`
+directory — the web UI built against the packaged `wasm/` output. Nothing
+in `engine/` depends on it, ever.
 
 ## Board
 
@@ -100,11 +101,12 @@ easy/medium/hard (see `search::EASY_DEPTH`/`MEDIUM_DEPTH`/`HARD_DEPTH`).
    `MEDIUM_DEPTH`/`HARD_DEPTH`), and `examples/play.rs` demonstrates pairing
    easy with `search_with_randomization`/`EASY_RANDOMIZATION_MARGIN` for an
    actually-weaker feel, not just shallower search
-3. `wasm-bindgen` adapter crate (kept separate from the core — see below):
-   `GameSession` API done (human moves incl. mill-capture selection, bot
-   moves, difficulty tiers), builds a real `.wasm` binary; still need the
-   actual web UI (single live session per browser tab, no backend)
-4. Later: a UniFFI adapter crate for a Kotlin Multiplatform client
+3. ~~`wasm-bindgen` adapter crate~~ done: `GameSession` API (human moves
+   incl. mill-capture selection, bot moves, difficulty tiers, a read-only
+   `hint()`), builds a real `.wasm` binary
+4. ~~Web UI~~ done: `ui/web/` — single live session per browser tab, no
+   backend, live at https://playmorris.vercel.app
+5. Later: a UniFFI adapter crate for a Kotlin Multiplatform client
 
 ## Design principles
 

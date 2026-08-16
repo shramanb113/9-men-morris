@@ -1,32 +1,52 @@
-# React + TypeScript + Vite
+# Morris — web UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The React/Vite web UI for the Nine Men's Morris engine. Play against the
+bot in the browser — no backend, no signup, one live session per tab.
 
-Currently, two official plugins are available:
+Live at **https://playmorris.vercel.app**.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## What's here
 
-## React Compiler
+- Play/difficulty/color selection, mill capture, and phase transitions
+  (placing → sliding → flying) driven entirely by the compiled
+  `engine/wasm` binary in `public/wasm/` — this UI never re-implements
+  game rules in JS.
+- Smooth piece placement/slide/capture animations (Framer Motion).
+- A hint button backed by the engine's own search (`GameSession::hint`),
+  gated by a small `localStorage` credit economy: a few free hints, more
+  via the share flow.
+- A custom share modal (X / LinkedIn / WhatsApp intents, not the native
+  OS share sheet) for the win state and for earning hint credits.
+- SEO: Open Graph/Twitter meta, JSON-LD, `robots.txt`, `sitemap.xml`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Quick start
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # tsc -b && vite build -> dist/
+npm run preview  # serve the production build locally
+npm run lint      # oxlint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Rebuilding the wasm binary
+
+`public/wasm/ninemensmorris_wasm.js` and `_bg.wasm` are committed, built
+from `engine/wasm`. After changing the Rust engine, regenerate them:
+
+```bash
+cd ../../engine/wasm
+wasm-pack build --target web --out-dir ../../ui/web/public/wasm
+```
+
+The glue is loaded via `fetch` + a Blob-URL `import()` in
+`src/lib/wasmEngine.ts` (see the comment there) rather than a normal
+`import`, because Vite's dev server won't serve `/public/*.js` as an ES
+module.
+
+## Deployment
+
+Deployed on Vercel, connected to this repo's `main` branch with **Root
+Directory: `ui/web`** and **Framework Preset: Vite** (the repo also
+contains the unrelated Rust engine, so both must be set explicitly —
+see `vercel.json`).
