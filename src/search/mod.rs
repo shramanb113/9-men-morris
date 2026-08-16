@@ -15,6 +15,29 @@ use tt::TranspositionTable;
 /// is a reasonable default for the depths this engine searches today.
 const DEFAULT_TT_CAPACITY: usize = 1 << 16;
 
+/// Recommended `depth` values for a three-tier difficulty selector, measured
+/// on the opening position (native release build) — the worst case for
+/// search time, since every other reachable position has fewer legal moves
+/// per side and resolves faster:
+///
+/// | depth        | first-move time (opening, worst case) |
+/// |--------------|-----------------------------------------|
+/// | `EASY_DEPTH`   (4) | ~40ms   |
+/// | `MEDIUM_DEPTH` (6) | ~800ms  |
+/// | `HARD_DEPTH`   (8) | ~6.4s   |
+///
+/// These are just depth numbers, not a policy for how to use them — that's
+/// a caller/adapter decision (see the crate-level design principle that the
+/// core stays free of platform/UI policy). In particular, an "easy" feel
+/// should come from pairing `EASY_DEPTH` with `search_with_randomization`
+/// and a modest margin (e.g. one piece's value, see `PIECE_VALUE` in
+/// `eval`), not from shallow search alone — quiescence means even a
+/// depth-4 search won't blunder a hanging capture, so weakness has to come
+/// from picking a worse-but-still-safe move on purpose.
+pub const EASY_DEPTH: u8 = 4;
+pub const MEDIUM_DEPTH: u8 = 6;
+pub const HARD_DEPTH: u8 = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SearchResult {
     pub best_move: Move,
@@ -29,15 +52,23 @@ fn root_search(state: &CurrentGameState, depth: u8, tt: &mut TranspositionTable)
     let tt_move = tt.probe(state.zobrist()).and_then(|entry| entry.best_move);
     order_moves(&mut moves, tt_move);
 
-    let mut alpha = -WIN_SCORE - 1;
+    let alpha = -WIN_SCORE - 1;
     let beta = WIN_SCORE + 1;
     let mut scored = Vec::with_capacity(moves.len());
 
     for mv in moves {
         let next = state.make_move(mv);
+        // Deliberately the same full (alpha, beta) window for every
+        // sibling, not narrowed by the best score found so far. Narrowing
+        // here would let a later move's search get cut off (e.g. by
+        // quiescence's stand-pat check) and return the window's bound
+        // itself rather than a real value — fine for interior nodes, which
+        // only ever compare scores with strict `>` and so never mistake a
+        // cutoff bound for an exact tie, but wrong here: `search` and
+        // `search_with_randomization` both compare every root move's score
+        // directly against its siblings, so each one has to be exact.
         let score = -negamax(&next, depth - 1, 1, -beta, -alpha, tt);
         scored.push((mv, score));
-        alpha = alpha.max(score);
     }
 
     scored

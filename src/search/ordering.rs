@@ -19,7 +19,7 @@ fn move_priority(mv: Move, tt_move: Option<Move>) -> u8 {
     }
 }
 
-fn is_capture(mv: Move) -> bool {
+pub(super) fn is_capture(mv: Move) -> bool {
     match mv {
         Move::Place { captures, .. }
         | Move::Slide { captures, .. }
