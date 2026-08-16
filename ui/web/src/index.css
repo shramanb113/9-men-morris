@@ -1,0 +1,100 @@
+@import "tailwindcss";
+@import "@fontsource-variable/hanken-grotesk";
+@import "@fontsource-variable/hanken-grotesk/wght-italic.css";
+@import "@fontsource/fraunces/600.css";
+@import "@fontsource/fraunces/600-italic.css";
+@import "@fontsource/fraunces/900.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+:root {
+  --bg: #efe9dc;
+  --panel: #e2dac6;
+  --panel-raised: #d6cbae;
+  --line: #4a4032;
+  --ink: #241d14;
+  --ink-soft: #6b5f4c;
+  --white-piece: #faf6ea;
+  --white-piece-edge: #c9b98d;
+  --black-piece: #232c42;
+  --black-piece-edge: #5b6a95;
+  --brass: #a8672a;
+  --brass-ink: #fff7e9;
+  --good: #4c6b3f;
+  --bad: #a8402c;
+  --hint: #3f8a7d;
+
+  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, serif;
+  --font-body: 'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15110a;
+    --panel: #1e1810;
+    --panel-raised: #2a2216;
+    --line: #b89a68;
+    --ink: #eee4d1;
+    --ink-soft: #ab9a7d;
+    --white-piece: #f2e9d4;
+    --white-piece-edge: #c9b98d;
+    --black-piece: #3a4568;
+    --black-piece-edge: #8b9bcc;
+    --brass: #d69a4c;
+    --brass-ink: #1a1409;
+    --good: #85b26e;
+    --bad: #e08469;
+    --hint: #5cb3a4;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #15110a;
+  --panel: #1e1810;
+  --panel-raised: #2a2216;
+  --line: #b89a68;
+  --ink: #eee4d1;
+  --ink-soft: #ab9a7d;
+  --white-piece: #f2e9d4;
+  --white-piece-edge: #c9b98d;
+  --black-piece: #3a4568;
+  --black-piece-edge: #8b9bcc;
+  --brass: #d69a4c;
+  --brass-ink: #1a1409;
+  --good: #85b26e;
+  --bad: #e08469;
+  --hint: #5cb3a4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
