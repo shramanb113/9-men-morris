@@ -9,7 +9,12 @@ in the browser.
 
 Rules engine and search (negamax + alpha-beta, quiescence search,
 iterative deepening, Zobrist-backed transposition table) are complete and
-tested. WASM adapter hasn't been started yet — see Roadmap.
+tested. `wasm/` adapter crate exposes a `GameSession` API and builds a real
+`.wasm` binary; the web UI itself hasn't been started — see Roadmap.
+
+This is a Cargo workspace: the core crate (`ninemensmorris`) lives at the
+repo root as always, `wasm/` is a separate member crate that depends on it.
+`cargo test --workspace` runs both.
 
 ## Board
 
@@ -41,6 +46,13 @@ about the ones below it:
 | `rules.rs` | Phase, mill detection, legal move generation, terminal/draw/result |
 | `zobrist.rs` | 64-bit position hashing, used by `search/`'s transposition table |
 | `search/` | Negamax + alpha-beta + quiescence search over `rules.rs`, with its own eval, move ordering, and transposition table submodules — no UI/platform dependency |
+
+`wasm/` is a separate crate (`ninemensmorris-wasm`, its own workspace
+member) that depends on this one — never the reverse. It owns everything
+platform-specific: `GameSession` (a mutable, JS-friendly wrapper over the
+core's immutable `CurrentGameState`), plain-number encodings of
+`Color`/`Phase`/`Square` for crossing the JS boundary, and untrusted-input
+validation for human moves via `wasm_bindgen`.
 
 ## Position invariants
 
@@ -85,8 +97,10 @@ easy/medium/hard (see `search::EASY_DEPTH`/`MEDIUM_DEPTH`/`HARD_DEPTH`).
    `MEDIUM_DEPTH`/`HARD_DEPTH`), and `examples/play.rs` demonstrates pairing
    easy with `search_with_randomization`/`EASY_RANDOMIZATION_MARGIN` for an
    actually-weaker feel, not just shallower search
-3. `wasm-bindgen` adapter crate (kept separate from the core — see below)
-   and a minimal web UI (single live session per browser tab, no backend)
+3. `wasm-bindgen` adapter crate (kept separate from the core — see below):
+   `GameSession` API done (human moves incl. mill-capture selection, bot
+   moves, difficulty tiers), builds a real `.wasm` binary; still need the
+   actual web UI (single live session per browser tab, no backend)
 4. Later: a UniFFI adapter crate for a Kotlin Multiplatform client
 
 ## Design principles
