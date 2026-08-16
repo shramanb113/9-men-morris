@@ -81,10 +81,10 @@ easy/medium/hard (see `search::EASY_DEPTH`/`MEDIUM_DEPTH`/`HARD_DEPTH`).
 
 1. ~~`search/` — negamax + alpha-beta, iterative deepening, Zobrist-backed
    transposition table~~ done, including quiescence search
-2. Difficulty levels: depths chosen (`search::EASY_DEPTH`/`MEDIUM_DEPTH`/
-   `HARD_DEPTH`); still need an adapter that pairs easy with
-   `search_with_randomization` for an actually-weaker feel, not just
-   shallower search
+2. ~~Difficulty levels~~ done: depths chosen (`search::EASY_DEPTH`/
+   `MEDIUM_DEPTH`/`HARD_DEPTH`), and `examples/play.rs` demonstrates pairing
+   easy with `search_with_randomization`/`EASY_RANDOMIZATION_MARGIN` for an
+   actually-weaker feel, not just shallower search
 3. `wasm-bindgen` adapter crate (kept separate from the core — see below)
    and a minimal web UI (single live session per browser tab, no backend)
 4. Later: a UniFFI adapter crate for a Kotlin Multiplatform client
