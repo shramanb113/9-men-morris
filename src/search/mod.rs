@@ -30,13 +30,19 @@ const DEFAULT_TT_CAPACITY: usize = 1 << 16;
 /// a caller/adapter decision (see the crate-level design principle that the
 /// core stays free of platform/UI policy). In particular, an "easy" feel
 /// should come from pairing `EASY_DEPTH` with `search_with_randomization`
-/// and a modest margin (e.g. one piece's value, see `PIECE_VALUE` in
-/// `eval`), not from shallow search alone — quiescence means even a
-/// depth-4 search won't blunder a hanging capture, so weakness has to come
-/// from picking a worse-but-still-safe move on purpose.
+/// and `EASY_RANDOMIZATION_MARGIN`, not from shallow search alone —
+/// quiescence means even a depth-4 search won't blunder a hanging capture,
+/// so weakness has to come from picking a worse-but-still-safe move on
+/// purpose. `Medium`/`Hard` should just call `search` directly.
 pub const EASY_DEPTH: u8 = 4;
 pub const MEDIUM_DEPTH: u8 = 6;
 pub const HARD_DEPTH: u8 = 8;
+
+/// Recommended `margin` for `search_with_randomization` at `EASY_DEPTH`:
+/// roughly one piece's value (see `PIECE_VALUE` in `eval`), so easy mode
+/// picks randomly among moves that give up at most about a piece's worth
+/// of score relative to the best move, never something wildly weaker.
+pub const EASY_RANDOMIZATION_MARGIN: i32 = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SearchResult {

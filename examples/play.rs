@@ -56,31 +56,92 @@ fn print_board(state: &CurrentGameState) {
     }
 }
 
-/// Accepts a raw depth number, or "easy"/"medium"/"hard" mapped to
-/// `search::EASY_DEPTH`/`MEDIUM_DEPTH`/`HARD_DEPTH`.
-fn parse_depth(arg: Option<String>) -> u8 {
-    match arg.as_deref() {
-        None => search::MEDIUM_DEPTH,
-        Some("easy") => search::EASY_DEPTH,
-        Some("medium") => search::MEDIUM_DEPTH,
-        Some("hard") => search::HARD_DEPTH,
-        Some(s) => s.parse().unwrap_or_else(|_| panic!("expected a depth number or easy/medium/hard, got {s:?}")),
+#[derive(Clone, Copy)]
+enum Difficulty {
+    Easy,
+    Medium,
+    Hard,
+    Custom(u8),
+}
+
+impl Difficulty {
+    fn depth(self) -> u8 {
+        match self {
+            Difficulty::Easy => search::EASY_DEPTH,
+            Difficulty::Medium => search::MEDIUM_DEPTH,
+            Difficulty::Hard => search::HARD_DEPTH,
+            Difficulty::Custom(depth) => depth,
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Difficulty::Easy => "easy".to_string(),
+            Difficulty::Medium => "medium".to_string(),
+            Difficulty::Hard => "hard".to_string(),
+            Difficulty::Custom(depth) => format!("depth {depth}"),
+        }
+    }
+
+    /// Picks a move for `state`, honoring what each tier is supposed to
+    /// feel like: easy plays weaker on purpose via
+    /// `search_with_randomization`, not just shallower — quiescence keeps
+    /// even a shallow search tactically sound, so depth alone wouldn't
+    /// actually feel "easy". Medium/Hard/Custom just want the best move.
+    fn pick(self, state: &CurrentGameState, seed: u64) -> search::SearchResult {
+        match self {
+            Difficulty::Easy => search::search_with_randomization(
+                state,
+                self.depth(),
+                search::EASY_RANDOMIZATION_MARGIN,
+                seed,
+            ),
+            Difficulty::Medium | Difficulty::Hard | Difficulty::Custom(_) => {
+                search::search(state, self.depth())
+            }
+        }
     }
 }
 
+/// Accepts a raw depth number, or "easy"/"medium"/"hard".
+fn parse_difficulty(arg: Option<String>) -> Difficulty {
+    match arg.as_deref() {
+        None => Difficulty::Medium,
+        Some("easy") => Difficulty::Easy,
+        Some("medium") => Difficulty::Medium,
+        Some("hard") => Difficulty::Hard,
+        Some(s) => Difficulty::Custom(
+            s.parse().unwrap_or_else(|_| panic!("expected a depth number or easy/medium/hard, got {s:?}")),
+        ),
+    }
+}
+
+/// A different value each call, mixed with `ply` so consecutive calls
+/// within the same clock tick still diverge. Only used to vary easy mode's
+/// move choice across a game — not meant to be cryptographically anything,
+/// and this kind of wall-clock seeding is exactly the platform-specific
+/// randomness the core itself deliberately never generates on its own.
+fn seed_for(ply: u32) -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_nanos() as u64;
+    nanos ^ (ply as u64)
+}
+
 fn main() {
-    let depth = parse_depth(std::env::args().nth(1));
+    let difficulty = parse_difficulty(std::env::args().nth(1));
 
     let mut state = CurrentGameState::new();
     let mut ply = 0u32;
 
-    println!("Nine Men's Morris — self-play at depth {depth}\n");
+    println!("Nine Men's Morris — self-play at {}\n", difficulty.label());
     print_board(&state);
 
     while !state.is_game_over() {
         let side = state.side_to_move();
         let started = std::time::Instant::now();
-        let result = search::search(&state, depth);
+        let result = difficulty.pick(&state, seed_for(ply));
         let elapsed = started.elapsed();
 
         ply += 1;
