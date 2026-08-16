@@ -1,6 +1,6 @@
 use crate::board::{BitBoard, MOVES, SQUARE_MILLS, clear, popcount, set};
 use crate::position::CurrentGameState;
-use crate::types::{Color, GameResult, Move, Phase, Square};
+use crate::types::{Captures, Color, GameResult, Move, Phase, Square};
 
 impl CurrentGameState {
     // --- phase ---
@@ -133,37 +133,65 @@ impl CurrentGameState {
         movable
     }
 
-    fn with_capture(mv: Move, target: Square) -> Move {
+    fn with_captures_applied(mv: Move, captures: Captures) -> Move {
         match mv {
-            Move::Place { to, .. } => Move::Place { to, capture: Some(target) },
-            Move::Slide { from, to, .. } => Move::Slide { from, to, capture: Some(target) },
-            Move::Fly { from, to, .. } => Move::Fly { from, to, capture: Some(target) },
+            Move::Place { to, .. } => Move::Place { to, captures },
+            Move::Slide { from, to, .. } => Move::Slide { from, to, captures },
+            Move::Fly { from, to, .. } => Move::Fly { from, to, captures },
+        }
+    }
+
+    /// All ways to choose `n` distinct capture squares from `available`
+    /// (`n` is always 1 or 2 here — at most two mills can form from a
+    /// single move, so there's never a need for a general k-combinations
+    /// routine).
+    fn capture_combinations(available: &[Square], n: usize) -> Vec<Captures> {
+        match n {
+            1 => available.iter().map(|&sq| Captures::one(sq)).collect(),
+            2 => {
+                let mut combos = Vec::new();
+                for i in 0..available.len() {
+                    for &b in &available[i + 1..] {
+                        combos.push(Captures::two(available[i], b));
+                    }
+                }
+                combos
+            }
+            _ => unreachable!("a single move can form at most two mills"),
         }
     }
 
     fn with_captures(&self, base_moves: Vec<Move>, color: Color) -> Vec<Move> {
         // computed once — identical for every move in this batch
-        let captures = self.generate_captures(color);
+        let available = self.generate_captures(color);
         let mut result = Vec::with_capacity(base_moves.len());
 
         for mv in base_moves {
-            let formed_mill = match mv {
-                Move::Place { to, .. } => self.forms_mill(color, to, None),
+            let mill_count = match mv {
+                Move::Place { to, .. } => self.mills_created_by(color, to, None),
                 Move::Slide { from, to, .. } | Move::Fly { from, to, .. } => {
-                    self.forms_mill(color, to, Some(from))
+                    self.mills_created_by(color, to, Some(from))
                 }
             };
 
-            if formed_mill {
-                debug_assert!(
-                    !captures.is_empty(),
-                    "mill formed with no capture targets — opponent has {} pieces; \
-                     caller must check is_terminal() before generating moves",
-                    self.pieces_on_board(color.opponent())
-                );
-                result.extend(captures.iter().map(|&target| Self::with_capture(mv, target)));
-            } else {
+            if mill_count == 0 {
                 result.push(mv);
+                continue;
+            }
+
+            // Capped by how many targets are actually legal to capture: a
+            // double mill against an opponent with only one non-mill piece
+            // (and not all their pieces milled) still only yields one
+            // capture, not two — you can't capture more than exists.
+            let n = (mill_count as usize).min(available.len());
+            debug_assert!(
+                n > 0,
+                "mill formed with no capture targets — opponent has {} pieces; \
+                 caller must check is_terminal() before generating moves",
+                self.pieces_on_board(color.opponent())
+            );
+            for captures in Self::capture_combinations(&available, n) {
+                result.push(Self::with_captures_applied(mv, captures));
             }
         }
         result
@@ -175,15 +203,21 @@ impl CurrentGameState {
     fn generate_captures(&self, color: Color) -> Vec<Square> {
         let opponent = color.opponent();
         let mut remaining = self.pieces(opponent);
-        let mut non_mill = Vec::new();
+        let mut squares = Vec::new();
         while remaining != 0 {
             let sq = Square(remaining.trailing_zeros() as u8);
-            if !self.is_in_mill(opponent, sq) {
-                non_mill.push(sq);
-            }
+            squares.push(sq);
             remaining = clear(remaining, sq);
         }
-        non_mill
+
+        if self.all_pieces_in_mills(opponent) {
+            // Exception: once every remaining piece is in a mill, mill
+            // membership no longer protects any of them from capture.
+            return squares;
+        }
+
+        squares.retain(|&sq| !self.is_in_mill(opponent, sq));
+        squares
     }
 
     /// Generates all legal placing moves (Phase 1).
@@ -192,7 +226,7 @@ impl CurrentGameState {
         let mut empties = self.empty_squares();
         while empties != 0 {
             let to = Square(empties.trailing_zeros() as u8);
-            base.push(Move::Place { to, capture: None });
+            base.push(Move::Place { to, captures: Captures::NONE });
             empties = clear(empties, to);
         }
         self.with_captures(base, color)
@@ -209,7 +243,7 @@ impl CurrentGameState {
             let mut dests = MOVES[from.0 as usize] & empties;
             while dests != 0 {
                 let to = Square(dests.trailing_zeros() as u8);
-                base.push(Move::Slide { from, to, capture: None });
+                base.push(Move::Slide { from, to, captures: Captures::NONE });
                 dests = clear(dests, to);
             }
             movable = clear(movable, from);
@@ -221,13 +255,13 @@ impl CurrentGameState {
     fn generate_fly_moves(&self, color: Color) -> Vec<Move> {
         let mut base = Vec::new();
         let empties = self.empty_squares();
-        let mut own = self.pieces(color); // no movable_pieces filter — everything can fly
+        let mut own = self.pieces(color); // no adjacency restriction — flying reaches any empty square
         while own != 0 {
             let from = Square(own.trailing_zeros() as u8);
-            let mut dests = MOVES[from.0 as usize] & empties;
+            let mut dests = empties;
             while dests != 0 {
                 let to = Square(dests.trailing_zeros() as u8);
-                base.push(Move::Fly { from, to, capture: None });
+                base.push(Move::Fly { from, to, captures: Captures::NONE });
                 dests = clear(dests, to);
             }
             own = clear(own, from);
@@ -280,6 +314,85 @@ mod verification {
         assert!(!state.has_legal_moves());
         assert!(state.is_terminal());
         assert_eq!(state.result(), GameResult::Winner(Color::Black));
+    }
+
+    #[test]
+    fn completing_two_mills_at_once_offers_two_captures() {
+        // White already owns 0, 2 (two-thirds of mill (0,1,2)) and 4, 7
+        // (two-thirds of mill (1,4,7)). Placing on square 1 completes both
+        // simultaneously. Black has 4 pieces, none in a mill, so there are
+        // 4 legal capture targets and every distinct pair should appear.
+        let white =
+            set(set(set(set(0, Square(0)), Square(2)), Square(4)), Square(7));
+        let black =
+            set(set(set(set(0, Square(3)), Square(5)), Square(6)), Square(8));
+        let state = CurrentGameState::from_bitboards(white, black, 5, 5, Color::White, 0, 100)
+            .expect("valid position");
+
+        assert_eq!(state.mills_created_by(Color::White, Square(1), None), 2);
+
+        let moves = state.generate_moves();
+        let double_captures: Vec<_> = moves
+            .iter()
+            .filter_map(|mv| match mv {
+                Move::Place { to: Square(1), captures } if captures.len() == 2 => Some(*captures),
+                _ => None,
+            })
+            .collect();
+
+        // C(4, 2) = 6 distinct pairs from {3, 5, 6, 8}.
+        assert_eq!(double_captures.len(), 6);
+        for &(a, b) in &[(3, 5), (3, 6), (3, 8), (5, 6), (5, 8), (6, 8)] {
+            assert!(
+                double_captures
+                    .iter()
+                    .any(|c| c.contains(Square(a)) && c.contains(Square(b))),
+                "missing capture pair ({a}, {b})"
+            );
+        }
+
+        // No single-capture variant should exist for this move — only the
+        // full double-capture is legal once two mills form together.
+        assert!(
+            !moves
+                .iter()
+                .any(|mv| matches!(mv, Move::Place { to: Square(1), captures } if captures.len() == 1))
+        );
+    }
+
+    #[test]
+    fn generate_captures_allows_capturing_from_a_mill_when_all_pieces_are_milled() {
+        let white = set(set(0, Square(0)), Square(1));
+        let black = set(set(set(0, Square(3)), Square(4)), Square(5)); // mill (3,4,5)
+        let state = CurrentGameState::from_bitboards(white, black, 7, 6, Color::White, 0, 100)
+            .expect("valid position");
+
+        // Placing on square 2 completes mill (0,1,2); every Black piece is
+        // already in a mill, so all three become valid capture targets.
+        let moves = state.generate_moves();
+        let capturing_moves = moves
+            .iter()
+            .filter(|mv| matches!(mv, Move::Place { to: Square(2), captures } if !captures.is_empty()))
+            .count();
+        assert_eq!(capturing_moves, 3);
+    }
+
+    #[test]
+    fn flying_reaches_non_adjacent_empty_squares() {
+        // Flying phase (3 pieces, hand empty): unlike sliding, a flying
+        // piece may land on any empty square, not just an adjacent one.
+        // Square 0's only neighbors are 1 and 9, so a Fly to square 16
+        // exists only if adjacency is correctly ignored here.
+        let white = set(set(set(0, Square(0)), Square(5)), Square(20));
+        let black = set(set(set(0, Square(8)), Square(11)), Square(17));
+        let state = CurrentGameState::from_bitboards(white, black, 0, 0, Color::White, 0, 100)
+            .expect("valid position");
+
+        assert_eq!(state.current_phase(), Phase::Flying);
+        let moves = state.generate_moves();
+        assert!(
+            moves.contains(&Move::Fly { from: Square(0), to: Square(16), captures: Captures::NONE })
+        );
     }
 
     #[test]

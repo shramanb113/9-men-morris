@@ -24,12 +24,13 @@ const fn color_index(color: Color) -> usize {
     }
 }
 
-/// splitmix64: a small, fast, well-distributed PRNG, used only to fill the
+/// splitmix64: a small, fast, well-distributed PRNG, used to fill the
 /// static tables below at compile time. Chosen over `rand` to keep the
 /// crate at zero external dependencies. Deterministic seed -> deterministic
 /// tables -> reproducible hashes across builds/runs, which matters for
-/// debugging a transposition table.
-const fn splitmix64(seed: u64) -> (u64, u64) {
+/// debugging a transposition table. `pub(crate)` so `search/` can reuse it
+/// as a tiny dependency-free tie-break PRNG instead of duplicating it.
+pub(crate) const fn splitmix64(seed: u64) -> (u64, u64) {
     let seed = seed.wrapping_add(0x9E3779B97F4A7C15);
     let mut z = seed;
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
@@ -115,7 +116,7 @@ impl CurrentGameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Move;
+    use crate::types::{Captures, Move};
 
     #[test]
     fn deterministic_for_equal_states() {
@@ -128,7 +129,7 @@ mod tests {
     fn placing_a_piece_changes_the_hash() {
         let state = CurrentGameState::new();
         let before = state.zobrist();
-        let after = state.make_move(Move::Place { to: Square(0), capture: None });
+        let after = state.make_move(Move::Place { to: Square(0), captures: Captures::NONE });
         assert_ne!(before, after.zobrist());
     }
 
@@ -136,7 +137,7 @@ mod tests {
     fn side_to_move_affects_the_hash() {
         let state = CurrentGameState::new();
         let after_white_moves =
-            state.make_move(Move::Place { to: Square(0), capture: None });
+            state.make_move(Move::Place { to: Square(0), captures: Captures::NONE });
         let mut same_board_white_to_move = after_white_moves.clone();
         same_board_white_to_move.set_turn(Color::White);
         assert_ne!(after_white_moves.zobrist(), same_board_white_to_move.zobrist());
@@ -153,16 +154,16 @@ mod tests {
         let start = CurrentGameState::new();
 
         let order_a = start
-            .make_move(Move::Place { to: Square(0), capture: None }) // White
-            .make_move(Move::Place { to: Square(9), capture: None }) // Black
-            .make_move(Move::Place { to: Square(1), capture: None }) // White
-            .make_move(Move::Place { to: Square(10), capture: None }); // Black
+            .make_move(Move::Place { to: Square(0), captures: Captures::NONE }) // White
+            .make_move(Move::Place { to: Square(9), captures: Captures::NONE }) // Black
+            .make_move(Move::Place { to: Square(1), captures: Captures::NONE }) // White
+            .make_move(Move::Place { to: Square(10), captures: Captures::NONE }); // Black
 
         let order_b = start
-            .make_move(Move::Place { to: Square(1), capture: None }) // White
-            .make_move(Move::Place { to: Square(10), capture: None }) // Black
-            .make_move(Move::Place { to: Square(0), capture: None }) // White
-            .make_move(Move::Place { to: Square(9), capture: None }); // Black
+            .make_move(Move::Place { to: Square(1), captures: Captures::NONE }) // White
+            .make_move(Move::Place { to: Square(10), captures: Captures::NONE }) // Black
+            .make_move(Move::Place { to: Square(0), captures: Captures::NONE }) // White
+            .make_move(Move::Place { to: Square(9), captures: Captures::NONE }); // Black
 
         assert_eq!(order_a, order_b);
         assert_eq!(order_a.zobrist(), order_b.zobrist());
@@ -197,7 +198,7 @@ mod tests {
         let mut hashes = Vec::new();
         for sq in 0..24u8 {
             let state = CurrentGameState::new()
-                .make_move(Move::Place { to: Square(sq), capture: None });
+                .make_move(Move::Place { to: Square(sq), captures: Captures::NONE });
             hashes.push(state.zobrist());
         }
         for i in 0..hashes.len() {

@@ -311,7 +311,10 @@ mod tests {
     #[test]
     fn placing_keeps_state_valid() {
         let state = CurrentGameState::new();
-        let next = state.make_move(crate::types::Move::Place { to: Square(0), capture: None });
+        let next = state.make_move(crate::types::Move::Place {
+            to: Square(0),
+            captures: crate::types::Captures::NONE,
+        });
         assert!(next.invariants_hold());
         assert!(next.is_white(Square(0)));
         assert!(!next.is_black(Square(0)));
