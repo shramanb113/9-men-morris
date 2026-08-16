@@ -101,15 +101,18 @@ impl CurrentGameState {
     }
 
     pub fn result(&self) -> GameResult {
-        if self.is_terminal() {
-            if self.pieces_on_board(Color::White) < 3 {
-                return GameResult::Winner(Color::Black);
-            }
-            if self.pieces_on_board(Color::Black) < 3 {
-                return GameResult::Winner(Color::White);
-            }
+        if !self.is_terminal() {
+            return GameResult::Ongoing;
         }
-        GameResult::Ongoing
+        let lost = |side: Color| self.pieces_in_hand(side) == 0 && self.pieces_on_board(side) < 3;
+        if lost(Color::White) {
+            return GameResult::Winner(Color::Black);
+        }
+        if lost(Color::Black) {
+            return GameResult::Winner(Color::White);
+        }
+        // Terminal but not by piece count: the side to move has no legal moves.
+        GameResult::Winner(self.side_to_move().opponent())
     }
 
     // --- move generation ---
@@ -260,6 +263,23 @@ mod verification {
         assert!(!state.is_terminal());
         let moves = state.generate_moves();
         assert_eq!(moves.len(), 24); // empty board, phase Placing, no mills possible yet
+    }
+
+    #[test]
+    fn result_reports_winner_when_side_to_move_is_blocked() {
+        // White pieces sit on four degree-2 squares (0, 2, 21, 23); Black
+        // occupies every one of their neighbors (1, 9, 14, 22), so White has
+        // zero movable pieces even though both sides have 4 pieces on board
+        // (well above the <3-piece loss threshold). This is terminal only
+        // via "no legal moves", not via piece count.
+        let white = set(set(set(set(0, Square(0)), Square(2)), Square(21)), Square(23));
+        let black = set(set(set(set(0, Square(1)), Square(9)), Square(14)), Square(22));
+        let state = CurrentGameState::from_bitboards(white, black, 0, 0, Color::White, 0, 100)
+            .expect("valid position");
+
+        assert!(!state.has_legal_moves());
+        assert!(state.is_terminal());
+        assert_eq!(state.result(), GameResult::Winner(Color::Black));
     }
 
     #[test]
