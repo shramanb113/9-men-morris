@@ -101,18 +101,22 @@ impl CurrentGameState {
     }
 
     pub fn result(&self) -> GameResult {
-        if !self.is_terminal() {
-            return GameResult::Ongoing;
+        if self.is_terminal() {
+            let lost =
+                |side: Color| self.pieces_in_hand(side) == 0 && self.pieces_on_board(side) < 3;
+            if lost(Color::White) {
+                return GameResult::Winner(Color::Black);
+            }
+            if lost(Color::Black) {
+                return GameResult::Winner(Color::White);
+            }
+            // Terminal but not by piece count: the side to move has no legal moves.
+            return GameResult::Winner(self.side_to_move().opponent());
         }
-        let lost = |side: Color| self.pieces_in_hand(side) == 0 && self.pieces_on_board(side) < 3;
-        if lost(Color::White) {
-            return GameResult::Winner(Color::Black);
+        if self.is_draw_by_plies() {
+            return GameResult::Draw;
         }
-        if lost(Color::Black) {
-            return GameResult::Winner(Color::White);
-        }
-        // Terminal but not by piece count: the side to move has no legal moves.
-        GameResult::Winner(self.side_to_move().opponent())
+        GameResult::Ongoing
     }
 
     // --- move generation ---
@@ -314,6 +318,15 @@ mod verification {
         assert!(!state.has_legal_moves());
         assert!(state.is_terminal());
         assert_eq!(state.result(), GameResult::Winner(Color::Black));
+    }
+
+    #[test]
+    fn result_reports_draw_when_ply_limit_reached() {
+        let state = CurrentGameState::from_bitboards(0, 0, 9, 9, Color::White, 100, 100)
+            .expect("valid position");
+        assert!(!state.is_terminal());
+        assert!(state.is_draw_by_plies());
+        assert_eq!(state.result(), GameResult::Draw);
     }
 
     #[test]
