@@ -1,6 +1,7 @@
 //! Self-play demo: `search()` plays both sides, printing the board after
 //! every move so you can watch it work instead of just trusting `cargo
-//! test`. Run with `cargo run --example play [depth]` (depth defaults to 4).
+//! test`. Run with `cargo run --release --example play [depth]`, where
+//! depth is a number or one of easy/medium/hard (defaults to medium).
 
 use ninemensmorris::position::CurrentGameState;
 use ninemensmorris::search;
@@ -55,8 +56,20 @@ fn print_board(state: &CurrentGameState) {
     }
 }
 
+/// Accepts a raw depth number, or "easy"/"medium"/"hard" mapped to
+/// `search::EASY_DEPTH`/`MEDIUM_DEPTH`/`HARD_DEPTH`.
+fn parse_depth(arg: Option<String>) -> u8 {
+    match arg.as_deref() {
+        None => search::MEDIUM_DEPTH,
+        Some("easy") => search::EASY_DEPTH,
+        Some("medium") => search::MEDIUM_DEPTH,
+        Some("hard") => search::HARD_DEPTH,
+        Some(s) => s.parse().unwrap_or_else(|_| panic!("expected a depth number or easy/medium/hard, got {s:?}")),
+    }
+}
+
 fn main() {
-    let depth: u8 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4);
+    let depth = parse_depth(std::env::args().nth(1));
 
     let mut state = CurrentGameState::new();
     let mut ply = 0u32;
