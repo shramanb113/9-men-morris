@@ -7,8 +7,9 @@ in the browser.
 
 ## Status
 
-Rules engine is complete and tested. Search (negamax + alpha-beta) hasn't
-been started yet — see Roadmap.
+Rules engine and search (negamax + alpha-beta, quiescence search,
+iterative deepening, Zobrist-backed transposition table) are complete and
+tested. WASM adapter hasn't been started yet — see Roadmap.
 
 ## Board
 
@@ -38,10 +39,8 @@ about the ones below it:
 | `position.rs` | `CurrentGameState` — bitboards, hand counts, turn, draw clock, and the invariants that protect them |
 | `moves.rs` | `Position + Move → Position` — applying a move (place/slide/fly + capture) |
 | `rules.rs` | Phase, mill detection, legal move generation, terminal/draw/result |
-| `zobrist.rs` | 64-bit position hashing, for a future transposition table |
-
-`search/` doesn't exist yet — it'll sit on top of `rules.rs` without either
-of them depending on a UI.
+| `zobrist.rs` | 64-bit position hashing, used by `search/`'s transposition table |
+| `search/` | Negamax + alpha-beta + quiescence search over `rules.rs`, with its own eval, move ordering, and transposition table submodules — no UI/platform dependency |
 
 ## Position invariants
 
@@ -68,16 +67,24 @@ cargo test
 ```
 
 Covers: invariant enforcement (including deliberately-broken states),
-mill detection, full-phase move generation without panicking, and Zobrist
+mill detection, full-phase move generation without panicking, Zobrist
 correctness (determinism, transposition equality, and the hand-count
-collision case a naive board-only hash would get wrong).
+collision case a naive board-only hash would get wrong), and search
+(terminal/mate-distance scoring, quiescence resolving hanging captures, the
+transposition table, move ordering, and deterministic seeded tie-breaking).
+
+`cargo run --release --example play [depth]` self-plays a full game and
+prints the board after every move — `depth` is a number or one of
+easy/medium/hard (see `search::EASY_DEPTH`/`MEDIUM_DEPTH`/`HARD_DEPTH`).
 
 ## Roadmap
 
-1. `search/` — negamax + alpha-beta, iterative deepening, Zobrist-backed
-   transposition table
-2. Difficulty levels via search depth/time budget (+ light randomization
-   for easy mode)
+1. ~~`search/` — negamax + alpha-beta, iterative deepening, Zobrist-backed
+   transposition table~~ done, including quiescence search
+2. Difficulty levels: depths chosen (`search::EASY_DEPTH`/`MEDIUM_DEPTH`/
+   `HARD_DEPTH`); still need an adapter that pairs easy with
+   `search_with_randomization` for an actually-weaker feel, not just
+   shallower search
 3. `wasm-bindgen` adapter crate (kept separate from the core — see below)
    and a minimal web UI (single live session per browser tab, no backend)
 4. Later: a UniFFI adapter crate for a Kotlin Multiplatform client
