@@ -1,1 +1,2 @@
-/target
+target/
+engine/wasm/pkg

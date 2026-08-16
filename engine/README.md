@@ -12,9 +12,12 @@ iterative deepening, Zobrist-backed transposition table) are complete and
 tested. `wasm/` adapter crate exposes a `GameSession` API and builds a real
 `.wasm` binary; the web UI itself hasn't been started — see Roadmap.
 
-This is a Cargo workspace: the core crate (`ninemensmorris`) lives at the
-repo root as always, `wasm/` is a separate member crate that depends on it.
-`cargo test --workspace` runs both.
+This directory (`engine/`) is a self-contained Cargo workspace: `core/` is
+the engine crate (`ninemensmorris`) described below, `wasm/` is a separate
+member crate that depends on it. `cargo test --workspace` (run from
+`engine/`) tests both. The repo root also has a sibling `ui/` directory,
+reserved for whatever UI gets built against the packaged `wasm/` output —
+nothing in `engine/` depends on it, ever.
 
 ## Board
 
